@@ -1,0 +1,1541 @@
+---
+title: "Comparitive study on Machine learning Regression Models"
+author: "José Pinto, Mariana Monteiro, Nirbhaya Shaji, Nuno Costa"
+date: "24/05/2020"
+output:
+  html_document:
+    code_folding: hide
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+Estimating housing values is very important for a variety of entities like governments, banks, house-owners and house-seekers.<br>
+It is typically not an easy problem. First of all because it's a somewhat subjective value. Different parties might have different perspectives and opinions that might be well-fundamented or not, perspectives that highly depend on the individual's knowledge. Even if people had access to all objective and non-sentimental variables involved, it is not guaranteed that a general agreement could be reached. So, in the mundane conditions that we are used to, the problem is even more complex. A classic example are real-estate bubbles. This is mainly due to the limitations of available data and the general high dimensionality of the data.<br>
+
+In order to tackle this problem, we are going to perform a full data science pipeline. Starting with the usual EDA, with visualization and understanding of the data, extensive pre-processing, model and train a variety of regression methods, and finally evaluate the results.<br>
+This assignment comes in sequence with the previous one, with a trickier dataset to process, and methods that are more difficult to tune.<br>
+
+## Goals
+
+The goals of this assignment are obtaining further knowledge in data processing, comparing different methods for regression, fine tuning method parameters and obtaining experience with evaluation methods like cross and bootstrap validation.<br>
+
+## Models
+
+For this assignment a variety of models will be used.<br>
+We will use <b>regression trees, random forests and SVMs</b>.
+And then we will use bagging and boosting in different methods.<br>
+For bagging we will use a MLP, which is not a common method, however, we are interested in the results.<br>
+For boosting we will use regression trees.<br>
+
+## Dataset
+
+The dataset we are going to work with is the "Melbourne housing" dataset available in Kaggle, which contains information about different aspects of housing in Melbourne.<br>
+
+It is comprised of a total of 34857 observations (rows) and 21 variables (columns), 1 target and 8 predictors.<br>
+The variables are as follows:<br>
+Target variable:<br>
+<b>Price</b> - The price for the house (integer)<br>
+
+predictor variables:<br>
+<b>Suburb</b> - The suburb the house is located at (factor)<br>
+<b>Address</b>	- The full address of the house (factor)<br>
+<b>Rooms</b> - Number of rooms in the house (integer)<br>
+<b>Type</b> -	H=House, U=Unit, T=Townhouse<br>
+br - bedroom(s);<br>
+h - house, cottage, villa, semi, terrace;<br>
+u - unit, duplex;<br>
+t - townhouse;<br>
+dev site - development site;<br>
+o res - other residential.<br>
+<b>Method</b>: <br>
+S - property sold;<br>
+SP - property sold prior;<br>
+PI - property passed in;<br>
+PN - sold prior not disclosed;<br>
+SN - sold not disclosed;<br>
+NB - no bid;<br>
+VB - vendor bid;<br>
+W - withdrawn prior to auction;<br>
+SA - sold after auction;<br>
+SS - sold after auction price not disclosed.<br>
+N/A - price or highest bid not available.<br>
+<b>SellerG</b> - Real estate agent (factor)<br>
+<b>Date</b> - Date in which the house was sold (factor/integer)<br>
+<b>Distance</b> - distance from center of town (decimal)<br>
+<b>Postcode</b> - Postal code of the house location (integer)<br>
+<b>Bedroom2</b> - Scraped # of Bedrooms (from different source) (integer)<br>
+<b>Bathroom</b> - Number of Bathrooms (integer)<br>
+<b>Car</b> - Number of car spots (integer)<br>
+<b>Landsize</b> - Total land size (house+backyard+etc.) (integer)<br>
+<b>BuildingArea</b> - Total floor size (integer)<br>
+<b>YearBuilt</b> - Year of house construction (integer)<br>
+<b>CouncilArea</b> - Council the house is attributed to (factor)<br>
+<b>Lattitude</b> - House latitude (decimal)<br>
+<b>Longtitude</b> - House longitude (decimal)<br>
+<b>Regionname</b> - House region (factor)<br>
+<b>Propertycount</b> - Number of properties that exist in the suburb (integer)<br>
+
+All the required libraries are included in the cell below to easily identify dependencies.<br>
+
+```{r libraries, message=FALSE, warning=FALSE}
+library(mlbench)
+library(class)
+library(GGally)
+library(magrittr)
+library(MASS)
+library(hmeasure)
+library(randomForest)
+library(reshape2)
+library(glmnet)
+library(ggplot2)
+library(reshape2)
+library(tidyverse)
+library(lubridate)
+library(bnstruct)
+library(fastDummies)
+library(lubridate)
+library(rpart)
+library(rpart.plot)
+library(MLmetrics)
+library(gbm, quietly=TRUE)
+library(caret)
+library(caretEnsemble)
+library(e1071)
+```
+
+Import the data and see its dimensions.<br>
+
+```{r dataset}
+housing = data.frame(read.csv("Melbourne_housing_FULL.csv"))
+dim(housing)
+```
+
+Check variable types.<br>
+
+```{r types}
+str(housing)
+```
+
+A few of the variables are assumed by the dataframe as the wrong type.<br>
+For example, "Distance","Postcode", "Propertycount" and "Date".<br>
+We will now correct it.<br>
+
+```{r typeCorrection, warning=FALSE}
+housingCorrected = housing
+distance = housing[,"Distance"]
+housingCorrected[,"Distance"] = as.numeric(levels(distance))[distance]
+postCode = housing[,"Postcode"]
+housingCorrected[,"Postcode"] = as.numeric(levels(postCode))[postCode]
+propertyCount = housing[,"Propertycount"]
+housingCorrected[,"Propertycount"] = as.numeric(levels(propertyCount))[propertyCount]
+date = housing[,"Date"]
+housingCorrected[,"Date"] = as.Date(date, format="%d/%m/%Y")
+str(housingCorrected)
+```
+
+First entries of the data.<br>
+
+```{r head}
+head(housingCorrected)
+```
+
+Summary of data distribution.<br>
+
+```{r summary}
+summary(housingCorrected)
+```
+
+YearBuilt has over 19k NAs. We could remove this variable, but it appears to have some effect on price (older houses tend to be more expensive).<br>
+According to Kaggle, Bedroom2 is externally scraped data and perhaps with less quality than the original, but it does seem to have some effect on final price.<br>
+
+In our data we have several categorical and numerical features. Most plots only work or are indicated for one type.<br>
+As such we will now split our data by feature type, in order to more easily explore it.<br>
+We will also separate the target columns.<br>
+
+```{r typesplit}
+targetCol = "Price"
+housingTarget = housingCorrected[,targetCol]
+housingNumerical = housingCorrected[,!sapply(housingCorrected, is.factor)]
+housingNumerical[,targetCol] = NULL
+numericalColumns = colnames(housingNumerical)
+housingCategorical = housingCorrected[,sapply(housingCorrected, is.factor)]
+categoricalColumns = colnames(housingCategorical)
+```
+
+Scatterplots, histograms, boxplots and correlation of data.<br>
+
+```{r pairs, message=FALSE, warning=FALSE, fig.width=10, fig.height=10}
+housingNumerical %>% ggpairs(.) + theme(axis.text.x = element_text(angle = 45, hjust = 1));
+```
+
+From the plots and summaries we spot no strong multicollinearity.<br>
+We also see that all plots are right skewed, except for "YearBuilt" which is left skewed and "Date", "Latittude", "Longtitude" and "propertycount" which are balanced. This indicates a need for box-cox transformations for most of the data (depending on the model we use).<br>
+
+We have no use for the entries with missing target variable ("Price") and therefore we will remove them.<br>
+
+```{r dropPriceNa}
+housingCorrected = housingCorrected %>% drop_na(Price)
+```
+
+Some "strange" aspects:<br>
+
+Only 1 house was built in 1196.<br>
+There are some nasty outliers that will probably lead to confusion in the models. While we are not sure if they are meaningful or not, removal is probably the best option.<br>
+
+```{r smoothRegression, message=FALSE, warning=FALSE}
+#draw scatterplot of "Rooms" vs "Price" and simple regression line
+ggplot(housingCorrected,aes(x=Rooms,y=Price)) + geom_point() + geom_smooth()
+#draw scatterplot of "Type" vs "Price"
+ggplot(housingCorrected,aes(x=Type,y=Price)) + geom_point() + geom_smooth()
+#draw scatterplot of "Method" vs "Price"
+ggplot(housingCorrected,aes(x=Method,y=Price)) + geom_point() + geom_smooth()
+#draw scatterplot of "SellerG" vs "Price" and tilt axis values
+ggplot(housingCorrected,aes(x=SellerG,y=Price)) + geom_point() + geom_smooth()+ theme(axis.text.x = element_text(angle = 45, hjust = 1))
+#draw scatterplot of "Date" vs "Price" and tilt axis values
+ggplot(housingCorrected,aes(x=Date,y=Price)) + geom_point() + geom_smooth() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+#draw scatterplot of "Regionname" vs "Price" and tilt axis values
+ggplot(housingCorrected,aes(x=Regionname,y=Price)) + geom_point() + geom_smooth() + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+#draw scatterplot of "YearBuilt" vs "Price" and simple regression line
+ggplot(housingCorrected,aes(x=YearBuilt,y=Price)) + geom_point() + geom_smooth()
+#draw scatterplot of "Bedroom2" vs "Price" and simple regression line
+ggplot(housingCorrected,aes(x=Bedroom2,y=Price)) + geom_point() + geom_smooth()
+#draw scatterplot of "Bathroom" vs "Price" and simple regression line
+ggplot(housingCorrected,aes(x=Bathroom,y=Price)) + geom_point() + geom_smooth()
+#draw scatterplot of "Car" vs "Price" and simple regression line
+ggplot(housingCorrected,aes(x=Car,y=Price)) + geom_point() + geom_smooth()
+```
+
+One thing that we can also notice is that there are a lot of NAs. A good idea is to reasonably fill in some values with group means. With the following visualizations we learn that grouping by suburb offers a higher granularity.<br>
+
+Grouping by suburb<br>
+
+```{r suburbGroup, message=FALSE, warning=FALSE, fig.width=10, fig.height=10}
+ggplot(housingCorrected) + 
+  geom_point(aes(x=Lattitude,y=Longtitude,colour=Suburb)) + 
+  theme(legend.position = "none")
+```
+
+Grouping by postcode<br>
+
+```{r postCodeGroup, message=FALSE, warning=FALSE, fig.width=10, fig.height=10}
+ggplot(housingCorrected) + 
+  geom_point(aes(x=Lattitude,y=Longtitude,colour=as.factor(Postcode))) + 
+  theme(legend.position = "none")
+```
+
+Grouping by Council Area<br>
+
+```{r councilAreaGroup, message=FALSE, warning=FALSE, fig.width=10, fig.height=10}
+ggplot(housingCorrected) + 
+  geom_point(aes(x=Lattitude,y=Longtitude,colour=CouncilArea)) + 
+  theme(legend.position = "none")
+```
+
+This visualization is just to have an approximate idea that houses are more expensive near the center (nothing surprising so far).<br>
+Inverted mapping. Green is low, red is high.<br>
+
+```{r correctedPriceMap, message=FALSE, warning=FALSE}
+lambda = 1/median(housingCorrected$Price)
+housingExponential = housingCorrected %>%
+      mutate( expPrice=11200000*exp(-Price*lambda))
+ggplot(housingExponential) + 
+  geom_point(aes(x=Lattitude,y=Longtitude,colour=expPrice)) +
+  scale_colour_gradient(low = "red", high = "green", na.value = NA)
+```                     
+
+We will now show the boxplots of the numerical data.<br>
+
+```{r boxplots}
+par(mfrow=c(2,2))
+#draw boxplot for all numerical variables
+for (column in numericalColumns){
+    boxplot(housingNumerical[column], main=column,
+   xlab="Value")
+}
+```
+
+We can see that almost all features have outliers, however, only "Car", "Landsize" and "BuildingArea" have severe outliers which we have to worry about.<br>
+We can also see that most features are symmetrical, with one small exception: date is slightly right skewed, with more data in more recent years.<br>
+
+We will now show the bar plots of the categorical data.<br>
+
+```{r barplots}
+#draw barplots for all numerical variables
+for (column in categoricalColumns){
+    housingPlot = ggplot(housingCategorical, aes(x=housingCategorical[,column])) + xlab(column) + ggtitle(column) + geom_bar()
+    levelCount = length(levels(housingCategorical[,column]))
+    if(levelCount>=50){
+      housingPlot = housingPlot + theme(axis.text.x=element_blank(),axis.ticks = element_blank())
+    }
+    else if (levelCount>5){
+      housingPlot = housingPlot + theme(axis.text.x = element_text(angle = 45, hjust = 1))
+    }
+    print(housingPlot)
+}
+```
+
+We will now see how many missing values we have. Later these will be dealt with.<br>
+We will only consider missing values for numerical columns. If categorical columns have missing values, these can be simply handled as another category.<br>
+
+```{r naSummary}
+#print number and percentage of rows with missing values (nas)
+missing_summary = function(data, column){
+  columnData = data[,column]
+  columnNaCount = sum(is.na(columnData))
+  columnNaPercent = columnNaCount/length(columnData)*100
+  print(paste(column,"has",columnNaCount,"missing values."))
+  print(paste("Being",format(round(columnNaPercent, 2), nsmall = 2),"% of the total amount."))
+}
+
+#print a missing value summary for all columns
+for (column in numericalColumns){
+  missing_summary(housingNumerical, column)
+  print("***************************************")
+}
+
+#get number of rows left after removing nas
+housingNaRemoved = nrow(housingNumerical[complete.cases(housingNumerical),])
+print(paste("After removing all nas we maintain",housingNaRemoved,"rows."))
+```
+
+As we can see above there are a lot of missing values. In fact, were we to remove all rows with missing values we would be left with only 11517, less than one third of the original dataset.<br>
+This might, however, be enough, given that we are not performing deep learning.<br>
+
+We will now show a list of the unique values for each categorical feature.<br>
+Any patterns or structure in these will allow us to extract better features for our ML methods.<br>
+
+```{r categoricalValues}
+#print unique values for all columns
+for (column in categoricalColumns){
+  print(paste("Unique values for:",column))
+  print(head(unique(housingCategorical[,column]),100))
+  print("========================================================================================================")
+  print("********************************************************************************************************")
+  print("========================================================================================================")
+}
+```
+
+Only "Address" seems to have some structure that will allow us to obtain better features.<br>
+Our categorical data has too many different values which will, if we one hot encode, lead to very sparse data.<br>
+
+In case we want to check the values for each suburb:
+
+```{r}
+compass = housingCorrected %>% group_by(Suburb) %>% summarise(Lat=mean(Lattitude,na.rm=TRUE),Lon=mean(Longtitude,na.rm=TRUE))
+```
+
+Here we can see that missing values are simultaneous for bedroom2, bathroom and car. This means a riskier triple imputation based on the same method.
+
+```{r}
+head(housingCorrected[is.na(housingCorrected$Bedroom2),])
+```
+
+Here we have seven observations where yearbuilt is bigger than date sold. We can always speculate on what happens, but since it's only seven instances we decided to not purposely delete it.<br>
+
+```{r}
+housingCorrected %>% filter(year(Date)<YearBuilt)
+```
+
+There are also more than 1000 observations where Building Area is larger than Land Size. This could have some logical meaning or not (for example, "Buildingarea" being the total floor area, which would count for each floor). We will leave it untouched.<br>
+
+```{r}
+head(housingCorrected %>% filter(BuildingArea>Landsize))
+```
+
+# Preprocessing
+
+In this section we will do all data preprocessing, in order to allow modeling and to increase its performance. Some small amount of processing was performed earlier, in order to allow visualization, and it shall be kept.<br>
+
+```{r seed}
+#set the seed so we can replicate results
+set.seed(123)
+```
+
+### Handle missing values
+
+We will now do a set of different operations to handle the missing values in the data.<br>
+First we will impute latitude and longitude by using their mean in each suburb. This should produce better results than central imputation.<br>
+
+```{r categoricalImputation}
+housingCatImputed = housingCorrected %>% 
+  #group by suburb
+  group_by(Suburb) %>% 
+  mutate(
+    #replace missing "Latitude" values with the suburb mean
+    Lattitude=ifelse(is.na(Lattitude),mean(Lattitude,na.rm=TRUE),Lattitude),
+    #replace missing "Longitude" values with the suburb mean
+    Longtitude=ifelse(is.na(Longtitude),mean(Longtitude,na.rm=TRUE),Longtitude)
+  )
+```
+
+Now we will use the information of correlation between variables to impute.<br>
+For the imputation we will only consider variables with high correlation with the imputed variable, as others would probably decrease data quality and modeling performance.<br>
+This should obtain better results than central imputation, as it is more local.<br>
+
+```{r correlationImputation}
+housingCorImputed = housingCatImputed
+
+#get imputed values for "Bedroom2", "Bathroom" and "Car"
+imputedColumns = knn.impute(as.matrix(housingCatImputed[,c("Rooms","Bedroom2","Bathroom","Car")]), k = 20, cat.var = c())[,c(2,3,4)]
+
+#replace "Bedroom2" column with imputed values
+housingCorImputed[,"Bedroom2"] = imputedColumns[,"Bedroom2"]
+#replace "Bathroom" column with imputed values
+housingCorImputed[,"Bathroom"] = imputedColumns[,"Bathroom"]
+#replace "Car" column with imputed values
+housingCorImputed[,"Car"] = imputedColumns[,"Car"]
+
+#get imputed values for "Landsize"
+imputedColumns = knn.impute(as.matrix(housingCatImputed[,c("Landsize","BuildingArea")]), k = 20, cat.var = c())[,1]
+#replace "Landsize" column with imputed values
+housingCorImputed[,"Landsize"] = imputedColumns
+```
+
+Finally, we will remove the rows with nans for features with too many (not enough information to accurately impute) or too little (we don’t lose much by removing) missing values. The features for which we have too many missing values are "BuildingArea" and "YearBuilt", while the ones for which we have too few are "Distance", "Postcode" and "Propertycount".<br>
+
+```{r dropNans}
+housingNanDropped = housingCorImputed %>% 
+  drop_na(Distance) %>% 
+  drop_na(Postcode) %>% 
+  drop_na(BuildingArea) %>% 
+  drop_na(YearBuilt) %>% 
+  drop_na(Propertycount)
+```
+
+Let’s make sure we have removed all nans.<br>
+
+```{r nanCheck}
+print(paste(sum(is.na(housingNanDropped)),"Nans."))
+```
+
+### Remove outliers
+
+Several of our features have severe outliers which may or not be mistakes, but will nevertheless affect too much some of our models.<br>
+
+We'll remove the instances where values have a distance to the median of 2.5 times or more the inter-quartile range. As opposed to the common 1.5 value we do this in order to maintain a bigger dataset and allow generalization to more extreme values. Higher than this limit and we would be compromising our models.<br>
+
+```{r outlierRemoval}
+ housingNoOutliers = housingNanDropped
+
+ #remove outliers for all columns
+ for (column in numericalColumns){
+   #date has no outliers and cannot be handled by this method
+   if (column = = "Date")
+     next
+
+   #find the 1st and 3rd quartile
+   Q = quantile(housingNoOutliers[[column]], probs=c(.25, .75), na.rm = FALSE)
+   #get the iterquartile range for the column
+   iqr = IQR(housingNoOutliers[[column]])
+   #get the maximum value
+   high = Q[2]+2.5*iqr
+   #get the minimum values
+   low = Q[1]-2.5*iqr
+   #remove rows with outliers
+   housingNoOutliers = subset(housingNoOutliers, housingNoOutliers[,column] > low & housingNoOutliers[,column] < high)
+ }
+```
+
+We are now going to confirm that the most severe outliers have been removed by observing the boxplots of the new data.<br>
+
+```{r boxplotConfirm}
+ par(mfrow=c(2,2))
+ #draw boxplots for all columns
+ for (column in numericalColumns){
+boxplot(housingNoOutliers[column], main=column,
+    xlab="Value")
+ }
+```
+
+The remaining data shows no sign of serious outliers, so we are good to go.<br>
+
+## Feature engineering
+
+Several of our features are categorical and will require further processing and feature extraction.<br>
+
+Special care must be given to two features in particular, "address" and "date".<br>
+
+### Address
+
+Address has a lot of different values and it's as such extremely sparse. Given that, we will split it into street name and door number. It could be that there is some urban planning aspect connected to door number. For example, here in Portugal we can observe many times odd and even door number houses on opposite sides of the street, this could allow some conclusion about south-facing houses having an impact on price.<br>
+Sometimes more than one door number is given, with some sort of separator; in these cases we will obtain and store only the first one.<br>
+
+```{r adressEngeniering, error=FALSE, warning=FALSE}
+housingAddress = data.frame(housingNoOutliers)
+
+#obtain address
+address = housingAddress[,"Address"]
+#split address by space
+adressSplit = strsplit(levels(address)," ")
+#obtain the first two words (door number and street)
+adressSplitCorrected = do.call(rbind,adressSplit)[,c(1,2)]
+
+#get door number
+rawDoorNumber = adressSplitCorrected[,1]
+#split it by letters and punctuation, leaving only numbers
+splitDoorNumber = strsplit(rawDoorNumber,"[[:punct:][:alpha:]]")
+#obtain first numbers
+doorNumber = do.call(rbind,splitDoorNumber)[,c(1,2)][,1]
+
+#get street name
+street = adressSplitCorrected[,2]
+
+#convert door number to integer
+housingAddress[,"Doornumber"] = as.numeric(doorNumber)[address]
+#convert street to factor
+housingAddress[,"Street"] = as.factor(street[address])
+housingAddress[,"Address"] = NULL
+
+housingCategorical = housingAddress[,sapply(housingAddress, is.factor)]
+categoricalColumns = colnames(housingCategorical)
+```
+
+### Date
+
+Finally, for date, we will decompose into day of the week, day of the month, month and year.<br>
+Although these could be extracted from the data automatically by the model, such would require complex nonlinear modeling. By performing this transformation, we should obtain much better results with a simpler data arrangement.<br>
+
+```{r dateEngeniering}
+housingDate = housingAddress
+housingDate[,"Weekday"] = wday(as.Date(housingAddress[,"Date"]))
+housingDate = separate(housingDate, "Date", c("Year", "Month", "Day"), sep = "-")
+
+#year, month and day were created as string. change them to integer
+housingDate[,"Year"] = as.numeric(housingDate[,"Year"])
+housingDate[,"Month"] = as.numeric(housingDate[,"Month"])
+housingDate[,"Day"] = as.numeric(housingDate[,"Day"])
+
+housingNumerical = housingDate[,!sapply(housingDate, is.factor)]
+housingNumerical[,targetCol] = NULL
+numericalColumns = colnames(housingNumerical)
+```
+
+### One Hot Encoding
+
+The method we will use for most categorical variables is one hot encoding. We will then proceed to remove the categories with low frequency.<br>
+
+```{r oneHotReduction}
+#perform one hot encoding keeping only the x columns with highest frequency
+compactOneHot = function(data, columnName, maxCols){
+  #copy input data
+  encodedData = data
+  #add a temporary empty column
+  encodedData[,"emptyColumn"] = NA
+  #one hot encode target column. empty column used to keep column name
+  encodedColumn = dummy_cols(encodedData[,c("emptyColumn",columnName)],select_columns = columnName)
+  #remove empty column and target column
+  encodedColumn[,c("emptyColumn",columnName)] = NULL
+  #remove empty column and target column
+  encodedData[,c("emptyColumn",columnName)] = NULL
+  
+  #create list
+  dummyFreqs = list()
+  #fill list with column_name:frequancy
+  for(dummieColumn in colnames(encodedColumn)){
+    dummyFreqs[dummieColumn] = sum(encodedColumn[,dummieColumn])
+  }
+  #order list by decreasing frequency
+  dummyFreqs = dummyFreqs[order(unlist(dummyFreqs), decreasing=TRUE)]
+  
+  
+  other = paste(columnName, "Other", sep="_")
+  i = 0
+  for(dummieColumn in names(dummyFreqs)){
+    #keep first max columns
+    if(i < maxCols){
+      #empty factor due to row removal in pre processing
+      if(sum(encodedColumn[,dummieColumn])==0){
+        encodedColumn[,dummieColumn] = NULL
+      }
+    }
+    #first max column after maxCols becomes "Other" column
+    else if(i = = maxCols){
+      encodedColumn[,other] = encodedColumn[,dummieColumn]
+      #remove column
+      encodedColumn[,dummieColumn] = NULL
+    }
+    #other columns get added to "Other" column
+    else{
+      encodedColumn[,other] = encodedColumn[,other] + encodedColumn[,dummieColumn]
+      #remove column
+      encodedColumn[,dummieColumn] = NULL
+    }
+    i=i+1
+  }
+  
+  #join encoded column with the rest of the data
+  encodedData = data.frame(encodedData,encodedColumn)
+  return(encodedData)
+}
+```
+
+Now we will use the above function to encode our categorical data.<br>
+
+```{r oneHotEncoding}
+housingOneHot = housingDate
+for(columnName in categoricalColumns){
+  #one hot encode data
+  housingOneHot = compactOneHot(housingOneHot, columnName, 10)
+}
+```
+
+## Distribution transformations
+
+Our features have extremely different distributions, means and variances, which affects some models' ability to learn. A solution is to use methods to make it more "normal".<br>
+
+First let's see the effect of the preprocessing done until now on the distribution.<br>
+
+```{r boxCoxTransform pairs, message=FALSE, warning=FALSE, fig.width=10, fig.height=10}
+#Draw pairs, histogram and correlation plots
+housingOneHot[,numericalColumns] %>% ggpairs(.) + theme(axis.text.x = element_text(angle = 45, hjust = 1));
+```
+
+Variables that where highly skewed previously are showing less distortion already. “Distance”, “Postcode”, “Landsize” and “YearBuilt" still seem a bit skewed.<br>
+
+In this next part we will develop some data transformations and will keep separate dataframes (no transform, transform[i]...) for later comparisons.
+
+### Box-cox
+
+The first transformation we will apply is the box-cox transform, in order for the distribution shapes to become more "normal".<br>
+We've decided to skip "Year" and "Postcode" as it produces bad results.<br>
+
+```{r boxCox}
+boxCoxTransform = function(data, columnName){
+  #box-cox cannot be applied for negative values, as such do nothing
+  if(min(data[,columnName])<0){
+    return(data[,columnName])
+  }
+  
+  par(mfrow=c(3,1))
+  #obtain perameters to perform box-cox
+  boxCoxParameters = boxcox(data[,columnName] + 0.01 ~ 1, lambda = seq(-5,5,0.1))
+  
+  #get lambda values tested
+  lambdas = boxCoxParameters$x
+  #get likelyhood for each value
+  likely = boxCoxParameters$y
+  #select lambda with highest likelyhood
+  lambda = lambdas[order(likely, decreasing=TRUE)][1]
+  
+  #perform box-cox
+  if (lambda = = 0){
+    boxCoxData = log(data[,columnName])
+  }
+  else{
+    boxCoxData = (data[,columnName] ^ lambda - 1)/lambda
+  }
+  
+  #plot original data
+  plot(density(data[,columnName]), main=columnName)
+  #plot transformed data
+  plot(density(boxCoxData),main=columnName)
+  return(boxCoxData)
+}
+
+housingBoxCox = housingOneHot
+for(columnName in numericalColumns){
+  if(columnName = = "Year" | columnName = = "Postcode"){
+    next
+  }
+  housingBoxCox[,columnName] = boxCoxTransform(housingBoxCox,columnName)
+}
+```
+
+### Standardization
+
+After box-cox the shape of the data is mostly normal, however the scales are still very different.<br>
+As such, we will perform standardization to obtain data with mean 0 and standard deviation 1.<br>
+
+```{r standardize}
+housingStantardized = housingBoxCox
+#obtain standardized numerical columns
+stantardizedColumns = scale(housingBoxCox[,numericalColumns], center = TRUE, scale = TRUE)
+#joint standaridized values with the rest of the dataframe
+housingStantardized[,numericalColumns] = stantardizedColumns
+```
+
+# Modeling
+
+In this section we will select, train and tune several models to obtain predictions from our data.<br>
+
+## Data Split
+
+Now that we have the data we split it into train and test data.<br>
+
+We will use different datasets to see the effects of preprocessing.<br>
+These will be:<br>
+Only with one hot encoding<br>
+With encoding and Box-cox transformations<br>
+With all transformations<br>
+We will also keep a version of each with the log of the target variable.<br>
+
+```{r dataSplit}
+#set the target column
+targetColumn = 2
+#set percentage of data for training to 80%
+trainPercent = 0.8
+#get the number of rows for training
+trainSize = floor(trainPercent*nrow(housingStantardized))
+#get the indices of the rows for training
+trainRows = sample(nrow(housingStantardized),trainSize,replace = FALSE)
+
+#==========================
+#one hot encoded data
+#==========================
+#get the rows with the training indices
+trainHousingOH = housingOneHot[trainRows,-targetColumn]
+#get the rows that are not training indices (test data)
+testHousingOH = housingOneHot[-trainRows,-targetColumn]
+
+
+#==========================
+#box-cox data
+#==========================
+#get the rows with the training indices
+trainHousingBC = housingBoxCox[trainRows,-targetColumn]
+#get the rows that are not training indices (test data)
+testHousingBC = housingBoxCox[-trainRows,-targetColumn]
+
+#==========================
+#standardized data
+#==========================
+#get the rows with the training indices
+trainHousingSD = housingStantardized[trainRows,-targetColumn]
+#get the rows that are not training indices (test data)
+testHousingSD = housingStantardized[-trainRows,-targetColumn]
+
+#==========================
+#regular target
+#==========================
+trainHousingY = housingStantardized[trainRows,targetColumn]
+testHousingY = housingStantardized[-trainRows,targetColumn]
+
+#==========================
+#log target
+#==========================
+trainHousingLogY = log(housingStantardized[trainRows,targetColumn])
+testHousingLogY = log(housingStantardized[-trainRows,targetColumn])
+```
+
+### Baseline
+
+First we will start by obtaining some baseline accuracy and error values from simple statistical methods.<br>
+
+```{r rmseFunction}
+# transform error into RMSE
+rmse = function(error)
+{
+    sqrt(mean(error^2))
+}
+```
+
+Here we obtain the error by predicting the mean or median.<br>
+
+```{r SimpleBaseline}
+print(paste("Using the median value for prediction, we get an RMSE of",rmse(testHousingY-median(trainHousingY)),"AUSD"))
+print(paste("Using the mean value for prediction, we get an RMSE of",rmse(testHousingY-mean(trainHousingY)),"AUSD"))
+#use exponential to convert back to the standard scale, in order to conver results
+print(paste("Using the median value for prediction for log, we get an RMSE of",rmse(testHousingY-exp(median(trainHousingLogY))),"AUSD"))
+#use exponential to convert back to the standard scale, in order to conver results
+print(paste("Using the mean value for prediction for log, we get an RMSE of",rmse(testHousingY-exp(mean(trainHousingLogY))),"AUSD"))
+```
+
+Here we obtain the error by predicting mean or median for each suburb.<br>
+
+```{r GroupedBaseline}
+#group by subburb and get mean for each
+error_suburb_mean = housingDate %>%
+  group_by(Suburb) %>%
+  mutate(Price - mean(Price, na.rm = TRUE)) %>%
+  pull()
+
+#group by subburb and get median for each
+error_suburb_median = housingDate %>%
+  group_by(Suburb) %>%
+  mutate(Price - median(Price, na.rm = TRUE)) %>%
+  pull()
+
+print(paste("Using the mean value grouped by suburb for prediction, we get an RMSE of",rmse(error_suburb_mean),"AUSD"))
+print(paste("Using the median value grouped by suburb for prediction, we get an RMSE of",rmse(error_suburb_median),"AUSD"))
+```
+
+### Bagged ANN/MLP
+
+Neural networks have gained a lot of traction in the ML community in recent years due, mostly, to the resurgence of deep learning.<br>
+Here we will present a somewhat unorthodox usage of neural networks, MLP (Multilayer Perceptron) bagging.<br>
+Although this is quite uncommon, there is some logic to it, being that the weights are randomly initialized, some models will converge to better results than others. By combining them, we would expect to obtain a model with less variability and higher performance.<br>
+We would expect bigger models with some overfitting to perform better on bagging, with each capturing some aspect of the data. This will however, be quite expensive, so we will restrict our search to smaller models.<br>
+The choice of MLP is due to the low complexity of the model, which increases the variance of individual models, which is useful for bagging.<br>
+Because this is not a common architecture, no implementation was found, requiring a more lengthy development process.<br>
+
+First we present the function to train the MLP ensemble.<br>
+
+```{r MLPEnsemble}
+#trains and returns a MLP ensemble model
+trainMLPEnsemble = function(data,target,parameters,p=0.8,randomState=123){
+  #set seed to replicate results
+  set.seed(randomState)
+  
+  #define options for training
+  control = trainControl(
+    #save values to make ensemble
+    savePredictions="final",
+    #split data for each inividual model
+    index=createDataPartition(data[,target],p=p),
+  )
+  
+  #create a list of models
+  modelList = caretList(
+    #set train data and target
+    as.formula(paste(target,"~.")), data=data,
+    #set the previously defined training options
+    trControl=control,
+    #set model parameters
+    tuneList=rep(
+      list(
+        caretModelSpec(
+          #set model to mlp
+          method="mlp", 
+          #set hidden layer size to "size" - requires matrix of values with column name "size"
+          tuneGrid = expand.grid(size=c(parameters$size))
+        )
+      ),
+      #set number of models to train
+      parameters$nModels
+    )
+  )
+  
+  #create ensemble with the trained models
+  MLPEnsemble = caretEnsemble(
+    modelList, 
+  )
+  return(MLPEnsemble)
+}
+```
+
+Then the function to perform cross validation (CV) on the MLP ensemble.<br>
+
+```{r MLPEnsembleParSelect}
+#perform cross validation on an MLP ensemble
+MPLEnsembleCV = function(data,target,nFolds=10,verbose=FALSE,p=0.8){
+  #vector to hold all errors for these parameters
+  errors = c()
+  
+  #create n folds
+  folds = createFolds(data[,target],k=nFolds)
+  #run for all folds
+  for(fold in 1:length(folds)){
+    #print progress
+    if(verbose){
+      print(paste("Fold",fold,"out of",length(folds)))
+    }
+    
+    #get the indexes of all but the current hold out fold
+    inBagIndex = (1:length(folds))[-fold]
+    #obtain the list with the in folds
+    inBagList = folds[inBagIndex]
+    #get the list of indexes for the in data
+    inBag = unlist(inBagList, use.names = FALSE)
+    #obtain the in data
+    inBagData = data[inBag,]
+    
+    #train the MLP ensemble model
+    MLPEnsemble = trainMLPEnsemble(inBagData,target,parameters,p)
+    
+    #get the indexes of the hold out fold
+    outBagList = folds[fold]
+    #get the list of indexes for the out data
+    outBag = unlist(outBagList, use.names = FALSE)
+    #obtain the out data
+    outBagData = data[outBag,]
+    
+    #get the prediction from our model to the hold out data
+    pred = predict(MLPEnsemble,newdata = outBagData)
+    #save the error
+    errors = c(errors,RMSE(pred,outBagData[,target]))
+  }
+  #obtain the mean for the errors in all folds
+  error = mean(errors)
+  if(verbose){
+    print(paste("RMSE:",error))
+  }
+
+  return(error)
+}
+```
+
+Now we present the function to select parameters by usage of CV.<br>
+
+```{r MLPEnsembleCV}
+#select the best parameters for MLP ensemble from a given list, by performing cross validation
+MLPEnsembleParSelect = function(data,target,parameterMatrix,nFolds=10,verbose=FALSE,p=0.8,randomState=123){
+  #set seed to replicate results
+  set.seed(randomState)
+  
+  #list to hold error metrics for each set of parameters
+  results = list()
+  
+  #try all parameters
+  for(row in 1:nrow(parameterMatrix)){
+    #print progress
+    if(verbose){
+      print(paste("Parameters",row,"out of",nrow(parameterMatrix)))
+    }
+    
+    #get a set of parameters
+    parameters = parameterMatrix[row,]
+    #get cross validation error
+    error = MPLEnsembleCV(data,target,nFolds=nFolds,verbose=verbose,p=p)
+    
+    #save the error and the parameter row
+    results = rbind(results,list(error,row))
+  }  
+  
+  #obtain the list of all errors
+  errorVector = unlist(results[,1])
+  #sort results by error if more than one result
+  if(nrow(results) ! = 1){
+    resultsSorted = results[order(errorVector),]
+  }
+  #otherwise add a new row for propper formating
+  else{
+    resultsSorted = rbind(results,list(0,0))
+  }
+  
+  #get the row of the best parameters
+  parametersRow = unlist(resultsSorted[1,2],use.names = FALSE)
+  
+  #print final parameters
+  if(verbose){
+    print(paste("Selected parameters are:"))
+    for(name in names(parameterMatrix)){
+      print(paste(name,": ",parameterMatrix[parametersRow,name],sep=""))
+    }
+  }
+  
+  return(parametersRow)
+}
+```
+
+Finally, we present the usage of said functions. The range of the parameters was selected by observing results in previous tests.<br>
+As it takes quite a while to run, the parameters where saved in order to run the selection again (always gets the same result) and switch what lines are commented from the ones with "parameterRow = something".<br>
+
+```{r MLPEnsembleCVV,warning=FALSE}
+sizes = c(0:3)
+nModels = c(1:5)
+nFolds = 10
+#create list of possible parameter combinations
+parameterMatrix = expand.grid(size=sizes,nModels=nModels)
+
+
+#==========================
+#one hot encoded model
+#==========================
+data = trainHousingOH
+data[,"Price"] = trainHousingY
+#get the row of the parameter matrix with best results
+#parameterRow = MLPEnsembleParSelect(data,"Price",parameterMatrix,verbose=TRUE,nFolds = nFolds)
+parameterRow = 3
+#get the best parameters
+parameters = parameterMatrix[parameterRow,]
+#train model with best parameters
+MLPEnsembleModel = trainMLPEnsemble(data,"Price",parameters)
+#get model predictions
+pred = predict(MLPEnsembleModel,newdata = testHousingOH)
+#get prediction errors
+print(paste("One Hot encoded model error:",RMSE(pred,testHousingY)))
+#==========================
+#one hot encoded model, log price
+#==========================
+data = trainHousingOH
+data[,"Price"] = trainHousingLogY
+#get the row of the parameter matrix with best results
+#parameterRow = MLPEnsembleParSelect(data,"Price",parameterMatrix,verbose=TRUE,nFolds = nFolds)
+parameterRow = 2
+#get the best parameters
+parameters = parameterMatrix[parameterRow,]
+#train model with best parameters
+MLPEnsembleModel = trainMLPEnsemble(data,"Price",parameters)
+#get model predictions
+pred = exp(predict(MLPEnsembleModel,newdata = testHousingOH))
+#get prediction errors
+print(paste("One Hot encoded model, log price error:",RMSE(pred,testHousingY)))
+#==========================
+#box-cox model
+#==========================
+data = trainHousingBC
+data[,"Price"] = trainHousingY
+#get the row of the parameter matrix with best results
+#parameterRow = MLPEnsembleParSelect(data,"Price",parameterMatrix,verbose=TRUE,nFolds = nFolds)
+parameterRow = 2
+#get the best parameters
+parameters = parameterMatrix[parameterRow,]
+#train model with best parameters
+MLPEnsembleModel = trainMLPEnsemble(data,"Price",parameters)
+#get model predictions
+pred = predict(MLPEnsembleModel,newdata = testHousingBC)
+#get prediction errors
+print(paste("Box-cox model error:",RMSE(pred,testHousingY)))
+#==========================
+#box-cox model, log price
+#==========================
+data = trainHousingBC
+data[,"Price"] = trainHousingLogY
+#get the row of the parameter matrix with best results
+#parameterRow = MLPEnsembleParSelect(data,"Price",parameterMatrix,verbose=TRUE,nFolds = nFolds)
+parameterRow = 2
+#get the best parameters
+parameters = parameterMatrix[parameterRow,]
+#train model with best parameters
+MLPEnsembleModel = trainMLPEnsemble(data,"Price",parameters)
+#get model predictions
+pred = exp(predict(MLPEnsembleModel,newdata = testHousingBC))
+#get prediction errors
+print(paste("Box-cox model, log price error:",RMSE(pred,testHousingY)))
+#==========================
+#standardized model
+#==========================
+data = trainHousingSD
+data[,"Price"] = trainHousingY
+#get the row of the parameter matrix with best results
+#parameterRow = MLPEnsembleParSelect(data,"Price",parameterMatrix,verbose=TRUE,nFolds = nFolds)
+parameterRow = 1
+#get the best parameters
+parameters = parameterMatrix[parameterRow,]
+#train model with best parameters
+MLPEnsembleModel = trainMLPEnsemble(data,"Price",parameters)
+#get model predictions
+pred = predict(MLPEnsembleModel,newdata = testHousingSD)
+#get prediction errors
+print(paste("Standardized model error:",RMSE(pred,testHousingY)))
+#==========================
+#standardized model, log price
+#==========================
+data = trainHousingSD
+data[,"Price"] = trainHousingLogY
+#get the row of the parameter matrix with best results
+#parameterRow = MLPEnsembleParSelect(data,"Price",parameterMatrix,verbose=TRUE,nFolds = nFolds)
+parameterRow = 5
+#get the best parameters
+parameters = parameterMatrix[parameterRow,]
+#train model with best parameters
+MLPEnsembleModel = trainMLPEnsemble(data,"Price",parameters)
+#get model predictions
+pred = exp(predict(MLPEnsembleModel,newdata = testHousingSD))
+#get prediction errors
+print(paste("Standardized model, log price error:",RMSE(pred,testHousingY)))
+```
+
+The results obtained were quite poor, in fact worse than the baseline.<br>
+The differences between them are well inside he margin of variability of the models.<br>
+We can see that the basic target value (as opposed to log), always obtained the better results. This however, does not indicate that said dataset is better, as the differences are quite low and the error high.<br>
+
+### Regression Trees
+
+Now we will use Regression Trees using the Anova method, starting with the standardized dataset.
+
+```{r} 
+fit = rpart(formula = trainHousingY ~ ., data = trainHousingSD, method = "anova")
+```
+
+```{r}
+printcp(fit)
+plotcp(fit)
+summary(fit)
+```
+
+Of the main set of variables this model uses a subset of 7 to actually build the tree: “BuildingArea”, “Distance”, “Landsize”, “Latitude”,  “Longitude”, “Regionname_Southern.Metropolitan” and “YearBuilt”. 
+
+```{r}
+prp(fit)
+```
+
+```{r}
+pred = predict(fit, newdata = testHousingSD,  type = "vector")
+```
+
+```{r}
+RMSE(pred, testHousingY)
+```
+
+Using the standard parameters, we get an RMSE of 419k. We will now compare this error with the model with tuned parameters and cross validation.
+
+```{r}
+rsq.rpart(fit)
+```
+
+```{r}
+trcontrol = trainControl(method = "cv", number = 10)
+cpGrid = expand.grid(.cp = (0:10) * 0.001)
+fitCv = train(trainHousingY~., data = cbind(trainHousingSD, trainHousingY), method = 'rpart', trControl = trcontrol, tuneGrid = cpGrid)
+```
+
+```{r}
+bestTree = fitCv$finalModel
+prp(bestTree)
+bestTreePred = predict(bestTree, newdata = testHousingSD)
+errorbestTree = RMSE(bestTreePred, testHousingY)
+```
+
+```{r}
+errorbestTree
+```
+
+As we can see right away, the best possible tree has a much higher complexity than the base tree, which in this case translated to a better performance, as the RMSE decreased to 339k. Having seen this, we will do the same operation for the box cox and one-hot encoded datasets.
+
+```{r}
+fitOH = rpart(formula = trainHousingY ~ ., data = trainHousingOH, method = "anova")
+predOH = predict(fit, newdata = testHousingOH,  type = "vector")
+RMSE(predOH, testHousingY)
+```
+
+```{r}
+fitBC = rpart(formula = trainHousingY ~ ., data = trainHousingBC, method = "anova")
+predBC = predict(fit, newdata = testHousingBC,  type = "vector")
+RMSE(predBC, testHousingY)
+```
+
+```{r}
+trcontrolOH = trainControl(method = "cv", number = 10)
+cpGrid = expand.grid(.cp = (0:10) * 0.001)
+fitCvOH = train(trainHousingY~., data = cbind(trainHousingOH, trainHousingY), method = 'rpart', trControl = trcontrolOH, tuneGrid = cpGrid)
+bestTreeOH = fitCvOH$finalModel
+prp(bestTreeOH)
+bestTreePredOH = predict(bestTreeOH, newdata = testHousingOH)
+errorbestTreeOH = RMSE(bestTreePredOH, testHousingY)
+errorbestTreeOH
+```
+
+```{r}
+trcontrolBC = trainControl(method = "cv", number = 10)
+cpGrid = expand.grid(.cp = (0:10) * 0.001)
+fitCvBC = train(trainHousingY~., data = cbind(trainHousingBC, trainHousingY), method = 'rpart', trControl = trcontrolBC, tuneGrid = cpGrid)
+bestTreeBC = fitCvBC$finalModel
+prp(bestTreeBC)
+bestTreePredBC = predict(bestTreeBC, newdata = testHousingBC)
+errorbestTreeBC = RMSE(bestTreePredBC, testHousingY)
+errorbestTreeBC
+```
+
+As we can see, the standardized dataset proved to be the one who granted the best performance both for regression trees and random forests. This was somewhat expected (at least for the Box-Cox transformation) as tree-based methods are usually invariant to monotone transformations. 
+
+###Random Forests
+
+Now the same analysis will be done for RF, starting as well with the standardized dataset, to see if the results are similar to the Regression Trees.
+
+```{r}
+fitRf = randomForest(trainHousingY~., cbind(trainHousingSD, trainHousingY))
+plot(fitRf)
+```
+
+```{r}
+importance(fitRf)
+```
+
+```{r}
+predRf = predict(fitRf, newdata = testHousingSD)
+rmseRf = RMSE(predRf, testHousingY)
+```
+
+```{r}
+rmseRf
+```
+
+Using only the standard hyperparameters, we see that Random Forests are already performing better than both the base and tuned trees. Now we will see how tuning it and applying cross validation affects the performance.
+
+```{r}
+trcontrolRf = trainControl(method = "cv", number = 10)
+fitCvRf = train(trainHousingY~., data = cbind(trainHousingSD, trainHousingY), method = 'rf', trControl = trcontrolRf)
+```
+
+```{r}
+bestModel = fitCvRf$finalModel
+bestModelPred = predict(bestModel, newdata = testHousingSD)
+errorbestRf = RMSE(bestModelPred, testHousingY)
+```
+
+```{r}
+fitRfOH = randomForest(trainHousingY~., cbind(trainHousingOH, trainHousingY))
+predRfOH = predict(fitRfOH, newdata = testHousingOH)
+rmseRfOH = RMSE(predRfOH, testHousingY)
+rmseRfOH
+```
+
+```{r}
+fitRfBC = randomForest(trainHousingY~., cbind(trainHousingBC, trainHousingY))
+predRfBC = predict(fitRfBC, newdata = testHousingBC)
+rmseRfBC = RMSE(predRfBC, testHousingY)
+rmseRfBC
+```
+
+```{r}
+trcontrolRfOH = trainControl(method = "cv", number = 10)
+fitCvRfOH = train(trainHousingY~., data = cbind(trainHousingOH, trainHousingY), method = 'rf', trControl = trcontrolRfOH)
+bestModelOH = fitCvRfOH$finalModel
+bestModelPredOH = predict(bestModelOH, newdata = testHousingOH)
+errorbestRfOH = RMSE(bestModelPredOH, testHousingY)
+errorbestRfOH
+```
+
+```{r}
+trcontrolRfBC = trainControl(method = "cv", number = 10)
+fitCvRfBC = train(trainHousingY~., data = cbind(trainHousingBC, trainHousingY), method = 'rf', trControl = trcontrolRfBC)
+bestModelBC = fitCvRfBC$finalModel
+bestModelPredBC = predict(bestModelBC, newdata = testHousingBC)
+errorbestRfBC = RMSE(bestModelPredBC, testHousingY)
+errorbestRfBC
+```
+
+The results were similar to the Regression trees when it comes to performance in the various datasets, as the standardized data allowed for a lower RMSE. 
+
+*****************************************************************
+BOOSTING METHODS
+*****************************************************************
+
+We start with the most basic learner, a regression tree.
+
+```{r}
+stump = rpart(Price~.,cbind(trainHousingOH,Price=trainHousingY))
+stump.pred = predict(stump,newdata=cbind(testHousingOH,Price=testHousingY))
+print(paste("Using a simple regression tree performing only one split, we get an RMSE of",rmse(testHousingY-stump.pred),"AUSD. Which is better than predicting using the average and the suburb grouped average"))
+```
+
+We apply a boosting algorithm with 100 weak learners and interaction depth 5.
+
+```{r}
+n.trees = 100
+housing.boost = gbm(Price ~ . ,data=cbind(trainHousingOH,Price=trainHousingY),n.trees = n.trees,
+                  interaction.depth = 5,distribution="gaussian")
+boostmodel.pred = predict(housing.boost,newdata=cbind(testHousingOH,Price=testHousingY),n.trees = n.trees)
+
+print(paste("Using gradient descent boosting with 100 trees we get an RMSE of",rmse(testHousingY-boostmodel.pred),"AUSD. That's 28% less RMSE than the single regression tree"))
+summary(housing.boost, plotit=FALSE)
+```
+
+Let's try to get a feel of what happens if we tweak the number of trees and the interaction depth parameter.
+
+```{r}
+goboost = function(n.trees=1,depth=1){
+  housing.boost=gbm(Price ~ . ,
+                    data = cbind(trainHousingOH,Price=trainHousingY),
+                    n.trees = n.trees,
+                    interaction.depth = depth,
+                    distribution="gaussian")
+  
+  boostmodel.pred = predict(housing.boost,
+                             newdata=cbind(testHousingOH,Price=testHousingY),
+                             n.trees = n.trees)
+  
+  rmse(testHousingY-boostmodel.pred)
+}
+n.trees = c(1,2,3,5,10,20,30,40,50,60,60,80,90,100)
+obserrors5 = sapply(n.trees,
+                   function(i) goboost(i,5))
+plot(n.trees,obserrors5,
+     type='o',
+     col='blue',
+     xlab='Ensemble size',
+     ylab='RMSE',
+     ylim=c(300000,650000))
+
+obserrors1 = sapply(n.trees,
+                   function(i) goboost(i,1))
+points(n.trees,obserrors1,type='o',col='red')
+obserrors10 = sapply(n.trees,
+                    function(i) goboost(i,10))
+points(n.trees,obserrors10,type='o',col='green')
+obserrors25 = sapply(n.trees,
+                    function(i) goboost(i,25))
+points(n.trees,obserrors25,type='o',col='pink')
+legend('topright',legend=c('depth 5','depth 1','depth10','depth25'),col=c('blue','red','green','pink'),pch='o')
+```
+
+It seems that error decreases with a bigger ensemble size, and higher interaction depth also improves the prediction quality. We should try cross validation here to make sure we're not overfitting anything.
+
+```{r}
+# run a basic GBM model
+ames_gbm1 = gbm(
+  formula = Price ~ .,
+  data = cbind(trainHousingOH,Price=trainHousingY),
+  distribution = "gaussian",  # SSE loss function
+  n.trees = 5000,
+  shrinkage = 0.1,
+  interaction.depth = 3,
+  n.minobsinnode = 10,
+  cv.folds = 10
+)
+
+# find index for number trees with minimum CV error
+best = which.min(ames_gbm1$cv.error)
+
+# get MSE and compute RMSE
+sqrt(ames_gbm1$cv.error[best])
+```
+
+```{r}
+gbm.perf(ames_gbm1, method = "cv")
+```
+
+```{r}
+# create grid search
+hyper_grid = expand.grid(
+  learning_rate = c(0.3, 0.1, 0.05, 0.01, 0.005),
+  RMSE = NA,
+  trees = NA,
+  time = NA
+)
+
+# execute grid search
+for(i in seq_len(nrow(hyper_grid))) {
+
+  # fit gbm
+  set.seed(123)  # for reproducibility
+  train_time = system.time({
+    m = gbm(
+      formula = Price ~ .,
+      data = cbind(trainHousingOH,Price=trainHousingY),
+      distribution = "gaussian",
+      n.trees = 4000, 
+      shrinkage = hyper_grid$learning_rate[i], 
+      interaction.depth = 3, 
+      n.minobsinnode = 10,
+      cv.folds = 10 
+   )
+  })
+  
+  # add SSE, trees, and training time to results
+  hyper_grid$RMSE[i] = sqrt(min(m$cv.error))
+  hyper_grid$trees[i] = which.min(m$cv.error)
+  hyper_grid$Time[i] = train_time[["elapsed"]]
+
+}
+
+# results
+arrange(hyper_grid, RMSE)
+```
+
+RMSE on cross validation set
+
+Best learning parameter - 0.1 for 2000trees. 0.05 is also quite good.
+
+learning_rate
+<dbl>
+RMSE
+<dbl>
+trees
+<int>
+time
+<lgl>
+Time
+<dbl>
+0.050	240766.4	3974	NA	708.38
+0.100	242318.8	3434	NA	850.16
+0.010	249398.7	3998	NA	723.66
+0.300	255551.5	751	NA	703.38
+0.005	260227.3	4000	NA	636.75
+
+```{r}
+# search grid
+hyper_grid = expand.grid(
+  n.trees = 3236,
+  shrinkage = 0.1,
+  interaction.depth = c(5, 10, 25),
+  n.minobsinnode = c(5, 10, 15)
+)
+
+# create model fit function
+model_fit = function(n.trees, shrinkage, interaction.depth, n.minobsinnode) {
+  set.seed(123)
+  m = gbm(
+    formula = Price ~ .,
+    data = cbind(trainHousingOH,Price=trainHousingY),
+    distribution = "gaussian",
+    n.trees = n.trees,
+    shrinkage = shrinkage,
+    interaction.depth = interaction.depth,
+    n.minobsinnode = n.minobsinnode,
+    cv.folds = 10
+  )
+  # compute RMSE
+  sqrt(min(m$cv.error))
+}
+
+# perform search grid with functional programming
+hyper_grid$rmse = purrr::pmap_dbl(
+  hyper_grid,
+  ~ model_fit(
+    n.trees = ..1,
+    shrinkage = ..2,
+    interaction.depth = ..3,
+    n.minobsinnode = ..4
+    )
+)
+
+# results
+arrange(hyper_grid, rmse)
+```
+
+RMSE on cross validation set
+
+n.trees
+<dbl>
+shrinkage
+<dbl>
+interaction.depth
+<dbl>
+n.minobsinnode
+<dbl>
+rmse
+<dbl>
+3236	0.1	10	5	234530.9
+3236	0.1	25	15	235703.2
+3236	0.1	25	5	235955.9
+3236	0.1	10	15	236189.6
+3236	0.1	5	10	237784.0
+3236	0.1	10	10	238329.7
+3236	0.1	25	10	238592.9
+3236	0.1	5	15	238748.5
+3236	0.1	5	5	239407.7
+
+Setting the learning parameter at 0.1 we get optimal values for interaction depth of 10 and n.minobsinnode 5. Let's try it!
+
+```{r}
+housing.boost=gbm(Price ~ . ,
+                    data = cbind(trainHousingOH,Price=trainHousingY),
+                    n.trees = 3200,
+                    interaction.depth = 15,
+                    n.minobsinnode = 5,
+                    shrinkage = 0.05,
+                    distribution="gaussian")
+  
+boostmodel.pred = predict(housing.boost,
+                             newdata=cbind(testHousingOH,Price=testHousingY),
+                             n.trees = 3200)
+  
+rmse(testHousingY-boostmodel.pred)
+```
+
+n.trees 3200, interaction.depth = 10, minobs=5, shrinkage=0.1
+rmse on test data 310674
+
+n.trees 3200, interaction.depth = 15, minobs=5, shrinkage=0.05
+rmse on test data 301293
+
+### Support Vector Machine for Regression 
+
+Our objective is to find the best parametrization for SVM and compare it to ensemble approaches.
+
+Support Vector Machine (SVM) is a powerful technique for supervised learning. SVM algorithm transforms the original data into a high dimension to seek a hyperplane for data segregation. The hyperplane is established by “essential training tuples” which are called support vectors. In comparison with other models, SVM tends to deliver better accuracy due to its ability of fitting nonlinear boundary.
+
+First, we try the four basic kernels in SVM: linear, polynomial, radial basis function (RBF) and sigmoid, with the default configuration for other parameters. We try the model for both normal target and log target. And the model with log target consistently gave a slightly better RMSE for all kernel configuration. 
+
+```{r}
+
+svm_linear = svm(trainHousingLogY ~ . , trainHousingSD, kernel = "linear" )
+svm_linear
+predict_linear = predict(svm_linear,testHousingSD)
+print(paste("Using the linear kernel, we get an RMSE of",rmse(testHousingY-exp(predict_linear)),"AUSD"))
+
+```
+
+```{r}
+svm_polynomimal = svm(trainHousingLogY ~ . , trainHousingSD, kernel = "polynomial")
+svm_polynomimal
+predict_polynomial = predict(svm_polynomimal,testHousingSD)
+print(paste("Using the polynomial kernel, we get an RMSE of",rmse(testHousingY-exp(predict_polynomial)),"AUSD"))
+```
+
+```{r}
+svm_radial = svm(trainHousingLogY ~ . , trainHousingSD, kernel = "radial")
+svm_radial
+predict_radial = predict(svm_radial,testHousingSD)
+print(paste("Using the radial kernel, we get an RMSE of",rmse(testHousingY-exp(predict_radial)),"AUSD"))
+```
+
+```{r}
+svm_sigmoid = svm(trainHousingLogY ~ . , trainHousingSD, kernel = "sigmoid")
+svm_sigmoid
+predict_sigmoid = predict(svm_sigmoid,testHousingSD)
+print(paste("Using the sigmoid kernel, we get an RMSE of",rmse(testHousingY-exp(predict_sigmoid)),"AUSD"))
+
+```
+
+The RBF kernel was able to find a model with 4886 support vectors and the rmse value for RBF kernel came out the lowest. Also, in general, RBF deems to be suitable with regression problems (Hsu, C. W., Chang, C. C., & Lin, C. J. (2003). A practical guide to support vector classification.). For this reason, we choose the kernel as radial for further tuning of parameters cost, gamma and epsilon. The standard way of doing it is by doing a grid search. However, the range of parameter values was severely limited by the time taken for the tune.svm() to execute. Using brute force, a narrower range was explored. It was verified that none of the parameters combination performed better than the default one for kernel RBF. 
+
+The default parameters cost, gamma and epsilon for RBF stayed same for normal and log transformed target. However, number of support vectors needed to find a model with log transformed target was higher than with normal target.
+
+Default Parameters:
+   SVM-Type:  eps-regression 
+ SVM-Kernel:  radial 
+       cost:  1 
+      gamma:  0.01298701 
+    epsilon:  0.1 
+
+Number of Support Vectors (normal target):  4914
+Number of Support Vectors (log target):  5597
+
+RMSE (normal target): 301685.313443019 AUSD
+RMSE (log target): 296727.770336694 AUSD
+
+```{r}
+# ?tune.svm
+# tuneResult1 = tune(svm, Price ~ . , data = trainHousingAll, 
+#                ranges = list(epsilon = c(0.1,0.2), cost = 2^(0:1), gamma = c(0.01,0.02)))
+# print(tuneResult1)
+# plot(tuneResult1)
+```
+
+```{r}
+# svm_tune = svm(trainHousingY ~ . , trainHousing, kernel = "radial", epsilon = 0.1, cost = 1, gamma = 1)
+# svm_tune
+# predict_tune = predict(svm_tune,testHousing)
+# print(paste("RMSE of",rmse(testHousingY-predict_tune),"AUSD"))
+```
+
+10 fold cross validation with SVM RBF Kernel on log transform of target gave the lowest RMSE 287975.525605941, which is slightly lower than other ensemble methods we tried.
+
+```{r}
+trainHousingAll = housingStantardized[trainRows,]
+testHousingAll = housingStantardized[-trainRows,]
+k_fold = 10
+fold_rmseSq_sum = 0
+```
+```{r}
+# in creating the folds, we specify the target feature (dependent variable) and # of folds
+folds = createFolds(housingStantardized$Price, k = k_fold)
+# in cv we are going to applying a created function to our 'folds'
+cv = lapply(folds, function(x) { # start of function
+  # in the next two lines we will separate the Training set into it's 10 pieces
+  training_fold = housingStantardized[-x, ] # training fold = training set minus (-) it's sub test fold
+  test_fold = housingStantardized[x, ] # here we describe the test fold individually
+  # now apply (train) the classifer on the training_fold
+  classifier = svm(formula = log(Price) ~ .,
+                   data = training_fold,
+                   kernel = 'radial')
+  # note we are training on training_fold and testing its accuracy on the test_fold
+  y_pred = predict(classifier,test_fold)
+  fold_rmse = rmse(test_fold$Price - exp(y_pred))
+  #fold_rmseSq_sum = fold_rmseSq_sum + (fold_rmse*fold_rmse)
+})
+
+```
+
+```{r}
+cv = as.numeric(cv)
+print(paste("CV test error for SVM RBF kernel is ",sqrt(sum(cv^2)/k_fold),"AUSD"))
+```
+
+Overall, the SVM method performed well. One of the biggest drawbacks was the time. It came out to be the slowest method to fit the training data set. This made it pretty hard to tune for parameters. 
+
+# Conclusions
+
+The MLP Bagging was by far the worst model, not even surpassing the baselines.<br>
+These results come from a variety of factors. The first is that most of the available MLP functions have a limit on the number of weights, limiting our models to very simple ones. From the ones that do not have this restriction, all of them crashed during training. This has led to severely underfit models in the ensemble, which obviously caused terrible results. Another factor is the processing time required, even with these simple models: it took well over 10 hours to compute the parameters.<br>
+Several improvements could be made with further resources. The manual implementation of bagging would allow the usage of more complete implementations of ANNs, allowing the training of deeper and more expressive models. The usage of some weight sharing between the models or pretraining with a portion of the dataset would significantly decrease the training time.<br>
+The failure of this approach is not indicative of its inadequacy, but instead of the need of a more thought out implementation.<br>
+The comparison between the remaining models is illustrated in our presentation, as it is a visual comparison.
